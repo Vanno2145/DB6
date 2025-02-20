@@ -2,91 +2,97 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
-class Program
-{
-    static void Main()
-    {
-        using (AppDbContext db = new AppDbContext())
-        {
-            db.Database.EnsureDeleted();
-            db.Database.EnsureCreated();
-
-            var product1 = new Product { Name = "Laptop", Price = 1200 };
-            var product2 = new Product { Name = "Smartphone", Price = 800 };
-            db.Products.AddRange(product1, product2);
-            db.SaveChanges();
-
-            Console.WriteLine("Products:");
-            foreach (var product in db.Products.ToList())
-            {
-                Console.WriteLine($"Id: {product.Id}, Name: {product.Name}, Price: {product.Price}");
-            }
-
-            var order = new Order { Date = DateTime.Now };
-            db.Orders.Add(order);
-            db.SaveChanges();
-
-            order.Products.Add(product1);
-            order.Products.Add(product2);
-            db.SaveChanges();
-
-            Console.WriteLine("Orders:");
-            foreach (var o in db.Orders.Include(o => o.Products))
-            {
-                Console.WriteLine($"Order Id: {o.Id}, Date: {o.Date}");
-                foreach (var p in o.Products)
-                {
-                    Console.WriteLine($" - Product: {p.Name}, Price: {p.Price}");
-                }
-            }
-        }
-    }
-}
-
-public class Product
+public class TaskItem
 {
     public int Id { get; set; }
     public string Name { get; set; }
-    public int Price { get; set; }
-    public int StockQuantity { get; set; } = 0;
-    public string Description { get; set; }
-    public List<Order> Orders { get; set; } = new();
-    public string TemporaryData { get; set; }
-}
-
-public class Order
-{
-    public int Id { get; set; }
-    public DateTime Date { get; set; }
-    public List<Product> Products { get; set; } = new();
+    public string Details { get; set; }
+    public DateTime Deadline { get; set; }
+    public bool Completed { get; set; }
 }
 
 public class AppDbContext : DbContext
 {
-    public DbSet<Product> Products { get; set; }
-    public DbSet<Order> Orders { get; set; }
+    public DbSet<TaskItem> Tasks { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        optionsBuilder.UseSqlServer(@"Server=(localdb)\MSSQLLocalDB;Database=testdb;Trusted_Connection=True;");
+
+        optionsBuilder.UseSqlServer("Server=(localdb)\\mssqllocaldb;Database=PerfumeStoreDB;Trusted_Connection=True;");
+    }
+}
+
+public class TaskManager
+{
+    private readonly AppDbContext context;
+
+    public TaskManager(AppDbContext context)
+    {
+        this.context = context;
     }
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    public async Task AddTaskAsync(TaskItem task)
     {
-        modelBuilder.Entity<Product>(entity =>
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+    }
+
+    public async Task<List<TaskItem>> GetTasksAsync()
+    {
+        return await context.Tasks.ToListAsync();
+    }
+
+    public async Task<TaskItem> GetTaskByIdAsync(int id)
+    {
+        return await context.Tasks.FindAsync(id);
+    }
+
+    public async Task UpdateTaskAsync(TaskItem task)
+    {
+        context.Tasks.Update(task);
+        await context.SaveChangesAsync();
+    }
+
+    public async Task DeleteTaskAsync(int id)
+    {
+        var task = await context.Tasks.FindAsync(id);
+        if (task != null)
         {
-            entity.HasKey(p => p.Id);
-            entity.Property(p => p.Name).HasMaxLength(100);
-            entity.Property(p => p.Name).IsRequired();
-            entity.Property(p => p.Price).HasColumnType("int");
-            entity.Property(p => p.StockQuantity).HasDefaultValue(0);
-            entity.Property(p => p.Description).IsRequired(false);
-            entity.HasIndex(p => p.Name).IsUnique();
-            entity.Ignore(p => p.TemporaryData);
-            entity.ToTable("StoreProducts");
-            entity.HasCheckConstraint("CK_Price_NonNegative", "[Price] >= 0");
-        });
+            context.Tasks.Remove(task);
+            await context.SaveChangesAsync();
+        }
+    }
+}
+
+public class Program
+{
+    public static async Task Main(string[] args)
+    {
+        using (var context = new AppDbContext())
+        {
+            context.Database.EnsureCreated(); 
+
+            var taskManager = new TaskManager(context);
+
+            
+            var newTask = new TaskItem
+            {
+                Name = "Buy groceries",
+                Details = "Milk, eggs, bread",
+                Deadline = DateTime.Now.AddDays(2),
+                Completed = false
+            };
+
+            await taskManager.AddTaskAsync(newTask);
+
+           
+            var tasks = await taskManager.GetTasksAsync();
+            foreach (var task in tasks)
+            {
+                Console.WriteLine($"Task: {task.Name}, Due: {task.Deadline}, Completed: {task.Completed}");
+            }
+        }
     }
 }
